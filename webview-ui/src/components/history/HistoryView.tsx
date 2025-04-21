@@ -93,7 +93,7 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 							/>
 							{isSelectionMode ? t("history:exitSelection") : t("history:selectionMode")}
 						</Button>
-						<Button onClick={onDone}>{t("history:done")}</Button>
+						<Button onClick={onDone}>{t("history:close")}</Button>
 					</div>
 				</div>
 				<div className="flex flex-col gap-2">

@@ -130,13 +130,13 @@ class MockResizeObserver {
 global.ResizeObserver = MockResizeObserver
 
 const renderSettingsView = () => {
-	const onDone = jest.fn()
+	const onClose = jest.fn()
 	const queryClient = new QueryClient()
 
 	render(
 		<ExtensionStateContextProvider>
 			<QueryClientProvider client={queryClient}>
-				<SettingsView onDone={onDone} />
+				<SettingsView onClose={onClose} />
 			</QueryClientProvider>
 		</ExtensionStateContextProvider>,
 	)
@@ -144,7 +144,7 @@ const renderSettingsView = () => {
 	// Hydrate initial state.
 	mockPostMessage({})
 
-	return { onDone }
+	return { onClose }
 }
 
 describe("SettingsView - Sound Settings", () => {

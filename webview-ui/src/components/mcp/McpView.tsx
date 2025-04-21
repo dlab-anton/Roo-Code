@@ -39,7 +39,7 @@ const McpView = ({ onDone }: McpViewProps) => {
 		<Tab>
 			<TabHeader className="flex justify-between items-center">
 				<h3 className="text-vscode-foreground m-0">{t("mcp:title")}</h3>
-				<Button onClick={onDone}>{t("mcp:done")}</Button>
+				<Button onClick={onDone}>{t("mcp:close")}</Button>
 			</TabHeader>
 
 			<TabContent>

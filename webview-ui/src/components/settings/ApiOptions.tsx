@@ -62,12 +62,14 @@ import { R1FormatSetting } from "./R1FormatSetting"
 import { OpenRouterBalanceDisplay } from "./OpenRouterBalanceDisplay"
 import { RequestyBalanceDisplay } from "./RequestyBalanceDisplay"
 import { ReasoningEffort } from "./ReasoningEffort"
+import { SectionHeader } from "./SectionHeader"
 
 interface ApiOptionsProps {
 	uriScheme: string | undefined
 	apiConfiguration: ApiConfiguration
 	setApiConfigurationField: <K extends keyof ApiConfiguration>(field: K, value: ApiConfiguration[K]) => void
 	fromWelcomeView?: boolean
+	fromProvidersTab?: boolean
 	errorMessage: string | undefined
 	setErrorMessage: React.Dispatch<React.SetStateAction<string | undefined>>
 }
@@ -77,6 +79,7 @@ const ApiOptions = ({
 	apiConfiguration,
 	setApiConfigurationField,
 	fromWelcomeView,
+	fromProvidersTab,
 	errorMessage,
 	setErrorMessage,
 }: ApiOptionsProps) => {
@@ -294,6 +297,15 @@ const ApiOptions = ({
 
 	return (
 		<div className="flex flex-col gap-3">
+			{!fromProvidersTab && (
+				<SectionHeader>
+					<div className="flex items-center gap-2">
+						<span className="codicon codicon-server w-4" />
+						<div>{t("settings:sections.providers")}</div>
+					</div>
+				</SectionHeader>
+			)}
+
 			<div className="flex flex-col gap-1 relative">
 				<div className="flex justify-between items-center">
 					<label className="block font-medium mb-1">{t("settings:providers.apiProvider")}</label>

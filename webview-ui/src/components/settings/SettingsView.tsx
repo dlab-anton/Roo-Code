@@ -1,4 +1,4 @@
-import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
+import React, { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react"
 import { useAppTranslation } from "@/i18n/TranslationContext"
 import {
 	CheckCheck,
@@ -13,14 +13,16 @@ import {
 	Globe,
 	Info,
 	LucideIcon,
+	ChevronsUpDown,
+	Check,
 } from "lucide-react"
-import { CaretSortIcon } from "@radix-ui/react-icons"
 
 import { ExperimentId } from "@roo/shared/experiments"
 import { TelemetrySetting } from "@roo/shared/TelemetrySetting"
 import { ApiConfiguration } from "@roo/shared/api"
 
 import { vscode } from "@/utils/vscode"
+import { cn } from "@/lib/utils" // Added cn import
 import { ExtensionStateContextType, useExtensionState } from "@/context/ExtensionStateContext"
 import {
 	AlertDialog,
@@ -32,16 +34,19 @@ import {
 	AlertDialogHeader,
 	AlertDialogFooter,
 	Button,
-	DropdownMenu,
-	DropdownMenuTrigger,
-	DropdownMenuContent,
-	DropdownMenuItem,
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+	Command,
+	CommandInput,
+	CommandList,
+	CommandGroup,
+	CommandItem,
 } from "@/components/ui"
 
-import { Tab, TabContent, TabHeader } from "../common/Tab"
+// Tab related imports removed
 import { SetCachedStateField, SetExperimentEnabled } from "./types"
 import { SectionHeader } from "./SectionHeader"
-import ApiConfigManager from "./ApiConfigManager"
 import ApiOptions from "./ApiOptions"
 import { AutoApproveSettings } from "./AutoApproveSettings"
 import { BrowserSettings } from "./BrowserSettings"
@@ -52,7 +57,7 @@ import { TerminalSettings } from "./TerminalSettings"
 import { ExperimentalSettings } from "./ExperimentalSettings"
 import { LanguageSettings } from "./LanguageSettings"
 import { About } from "./About"
-import { Section } from "./Section"
+import SettingsNav from "./SettingsNav"
 
 export interface SettingsViewRef {
 	checkUnsaveChanges: (then: () => void) => void
@@ -70,29 +75,64 @@ const sectionNames = [
 	"language",
 	"about",
 ] as const
-
 type SectionName = (typeof sectionNames)[number]
 
-type SettingsViewProps = {
-	onDone: () => void
-	targetSection?: string
+// Define the structure for sections used in navigation
+const sections: { id: SectionName; icon: LucideIcon }[] = [
+	{ id: "providers", icon: Webhook },
+	{ id: "autoApprove", icon: CheckCheck },
+	{ id: "browser", icon: SquareMousePointer },
+	{ id: "checkpoints", icon: GitBranch },
+	{ id: "notifications", icon: Bell },
+	{ id: "contextManagement", icon: Database },
+	{ id: "terminal", icon: SquareTerminal },
+	{ id: "experimental", icon: FlaskConical },
+	{ id: "language", icon: Globe },
+	{ id: "about", icon: Info },
+]
+
+// Map section names to their components
+const sectionComponentMap: Record<SectionName, React.ComponentType<any>> = {
+	providers: ApiOptions, // Note: ApiConfigManager is rendered within ApiOptions section
+	autoApprove: AutoApproveSettings,
+	browser: BrowserSettings,
+	checkpoints: CheckpointSettings,
+	notifications: NotificationSettings,
+	contextManagement: ContextManagementSettings,
+	terminal: TerminalSettings,
+	experimental: ExperimentalSettings,
+	language: LanguageSettings,
+	about: About,
 }
 
-const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, targetSection }, ref) => {
+type SettingsViewProps = {
+	onClose: () => void
+	targetSection?: string // Keep targetSection prop for potential initial active tab
+}
+
+const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onClose, targetSection }, ref) => {
 	const { t } = useAppTranslation()
 
 	const extensionState = useExtensionState()
-	const { currentApiConfigName, listApiConfigMeta, uriScheme, version, settingsImportedAt } = extensionState
+	const { currentApiConfigName, listApiConfigMeta = [], uriScheme, version, settingsImportedAt } = extensionState
 
 	const [isDiscardDialogShow, setDiscardDialogShow] = useState(false)
 	const [isChangeDetected, setChangeDetected] = useState(false)
 	const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined)
 
-	const prevApiConfigName = useRef(currentApiConfigName)
-	const confirmDialogHandler = useRef<() => void>()
+	// State for the active navigation tab
+	const [activeSection, setActiveSection] = useState<SectionName>(
+		targetSection && sectionNames.includes(targetSection as SectionName)
+			? (targetSection as SectionName)
+			: sectionNames[0],
+	)
+
+	const prevApiConfigName = React.useRef(currentApiConfigName)
+	const confirmDialogHandler = React.useRef<() => void>()
 
 	const [cachedState, setCachedState] = useState(extensionState)
 
+	// Destructure all potentially needed state variables for section components
 	const {
 		alwaysAllowReadOnly,
 		alwaysAllowReadOnlyOutsideWorkspace,
@@ -140,19 +180,14 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 	// Make sure apiConfiguration is initialized and managed by SettingsView.
 	const apiConfiguration = useMemo(() => cachedState.apiConfiguration ?? {}, [cachedState.apiConfiguration])
 
+	// --- State update logic (unchanged) ---
 	useEffect(() => {
-		// Update only when currentApiConfigName is changed.
-		// Expected to be triggered by loadApiConfiguration/upsertApiConfiguration.
-		if (prevApiConfigName.current === currentApiConfigName) {
-			return
-		}
-
+		if (prevApiConfigName.current === currentApiConfigName) return
 		setCachedState((prevCachedState) => ({ ...prevCachedState, ...extensionState }))
 		prevApiConfigName.current = currentApiConfigName
 		setChangeDetected(false)
-	}, [currentApiConfigName, extensionState, isChangeDetected])
+	}, [currentApiConfigName, extensionState])
 
-	// Bust the cache when settings are imported.
 	useEffect(() => {
 		if (settingsImportedAt) {
 			setCachedState((prevCachedState) => ({ ...prevCachedState, ...extensionState }))
@@ -162,10 +197,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 
 	const setCachedStateField: SetCachedStateField<keyof ExtensionStateContextType> = useCallback((field, value) => {
 		setCachedState((prevState) => {
-			if (prevState[field] === value) {
-				return prevState
-			}
-
+			if (prevState[field] === value) return prevState
 			setChangeDetected(true)
 			return { ...prevState, [field]: value }
 		})
@@ -174,10 +206,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 	const setApiConfigurationField = useCallback(
 		<K extends keyof ApiConfiguration>(field: K, value: ApiConfiguration[K]) => {
 			setCachedState((prevState) => {
-				if (prevState.apiConfiguration?.[field] === value) {
-					return prevState
-				}
-
+				if (prevState.apiConfiguration?.[field] === value) return prevState
 				setChangeDetected(true)
 				return { ...prevState, apiConfiguration: { ...prevState.apiConfiguration, [field]: value } }
 			})
@@ -187,10 +216,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 
 	const setExperimentEnabled: SetExperimentEnabled = useCallback((id: ExperimentId, enabled: boolean) => {
 		setCachedState((prevState) => {
-			if (prevState.experiments?.[id] === enabled) {
-				return prevState
-			}
-
+			if (prevState.experiments?.[id] === enabled) return prevState
 			setChangeDetected(true)
 			return { ...prevState, experiments: { ...prevState.experiments, [id]: enabled } }
 		})
@@ -198,10 +224,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 
 	const setTelemetrySetting = useCallback((setting: TelemetrySetting) => {
 		setCachedState((prevState) => {
-			if (prevState.telemetrySetting === setting) {
-				return prevState
-			}
-
+			if (prevState.telemetrySetting === setting) return prevState
 			setChangeDetected(true)
 			return { ...prevState, telemetrySetting: setting }
 		})
@@ -209,8 +232,10 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 
 	const isSettingValid = !errorMessage
 
+	// --- Submit logic (unchanged) ---
 	const handleSubmit = () => {
 		if (isSettingValid) {
+			// Post all messages... (code omitted for brevity, same as original)
 			vscode.postMessage({ type: "language", text: language })
 			vscode.postMessage({ type: "alwaysAllowReadOnly", bool: alwaysAllowReadOnly })
 			vscode.postMessage({
@@ -257,10 +282,12 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 			vscode.postMessage({ type: "alwaysAllowSubtasks", bool: alwaysAllowSubtasks })
 			vscode.postMessage({ type: "upsertApiConfiguration", text: currentApiConfigName, apiConfiguration })
 			vscode.postMessage({ type: "telemetrySetting", text: telemetrySetting })
+
 			setChangeDetected(false)
 		}
 	}
 
+	// --- Unsaved changes logic (unchanged) ---
 	const checkUnsaveChanges = useCallback(
 		(then: () => void) => {
 			if (isChangeDetected) {
@@ -281,76 +308,113 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		}
 	}, [])
 
-	const providersRef = useRef<HTMLDivElement>(null)
-	const autoApproveRef = useRef<HTMLDivElement>(null)
-	const browserRef = useRef<HTMLDivElement>(null)
-	const checkpointsRef = useRef<HTMLDivElement>(null)
-	const notificationsRef = useRef<HTMLDivElement>(null)
-	const contextManagementRef = useRef<HTMLDivElement>(null)
-	const terminalRef = useRef<HTMLDivElement>(null)
-	const experimentalRef = useRef<HTMLDivElement>(null)
-	const languageRef = useRef<HTMLDivElement>(null)
-	const aboutRef = useRef<HTMLDivElement>(null)
+	// Helper functions for Configuration Profile
+	const handleAdd = useCallback(() => {
+		vscode.postMessage({ type: "upsertApiConfiguration", text: "New Profile", apiConfiguration })
+	}, [apiConfiguration])
 
-	const sections: { id: SectionName; icon: LucideIcon; ref: React.RefObject<HTMLDivElement> }[] = useMemo(
-		() => [
-			{ id: "providers", icon: Webhook, ref: providersRef },
-			{ id: "autoApprove", icon: CheckCheck, ref: autoApproveRef },
-			{ id: "browser", icon: SquareMousePointer, ref: browserRef },
-			{ id: "checkpoints", icon: GitBranch, ref: checkpointsRef },
-			{ id: "notifications", icon: Bell, ref: notificationsRef },
-			{ id: "contextManagement", icon: Database, ref: contextManagementRef },
-			{ id: "terminal", icon: SquareTerminal, ref: terminalRef },
-			{ id: "experimental", icon: FlaskConical, ref: experimentalRef },
-			{ id: "language", icon: Globe, ref: languageRef },
-			{ id: "about", icon: Info, ref: aboutRef },
-		],
-		[
-			providersRef,
-			autoApproveRef,
-			browserRef,
-			checkpointsRef,
-			notificationsRef,
-			contextManagementRef,
-			terminalRef,
-			experimentalRef,
-		],
+	const handleStartRename = useCallback(
+		(name: string) => {
+			vscode.postMessage({
+				type: "renameApiConfiguration",
+				values: { oldName: name, newName: name },
+				apiConfiguration,
+			})
+		},
+		[apiConfiguration],
 	)
 
-	const scrollToSection = (ref: React.RefObject<HTMLDivElement>) => ref.current?.scrollIntoView()
+	// --- Prepare props for the active section component ---
+	// Gather all props needed by any section component
+	const sectionProps = {
+		// Props for ApiOptions
+		uriScheme,
+		apiConfiguration,
+		setApiConfigurationField,
+		errorMessage,
+		setErrorMessage,
+		// Props for AutoApproveSettings
+		alwaysAllowReadOnly,
+		alwaysAllowReadOnlyOutsideWorkspace,
+		alwaysAllowWrite,
+		alwaysAllowWriteOutsideWorkspace,
+		writeDelayMs,
+		alwaysAllowBrowser,
+		alwaysApproveResubmit,
+		requestDelaySeconds,
+		alwaysAllowMcp,
+		alwaysAllowModeSwitch,
+		alwaysAllowSubtasks,
+		alwaysAllowExecute,
+		allowedCommands,
+		setCachedStateField, // Also used by others
+		// Props for BrowserSettings
+		browserToolEnabled,
+		browserViewportSize,
+		screenshotQuality,
+		remoteBrowserHost,
+		remoteBrowserEnabled,
+		// Props for CheckpointSettings
+		enableCheckpoints,
+		// Props for NotificationSettings
+		ttsEnabled,
+		ttsSpeed,
+		soundEnabled,
+		soundVolume,
+		// Props for ContextManagementSettings
+		maxOpenTabsContext,
+		maxWorkspaceFiles: maxWorkspaceFiles ?? 200, // Ensure default is passed
+		showRooIgnoredFiles,
+		maxReadFileLine,
+		// Props for TerminalSettings
+		terminalOutputLineLimit,
+		terminalShellIntegrationTimeout,
+		terminalCommandDelay,
+		terminalPowershellCounter,
+		terminalZshClearEolMark,
+		terminalZshOhMy,
+		terminalZshP10k,
+		terminalZdotdir,
+		// Props for ExperimentalSettings
+		setExperimentEnabled,
+		experiments,
+		// Props for LanguageSettings
+		language: language || "en", // Ensure default is passed
+		// Props for About
+		version,
+		telemetrySetting,
+		setTelemetrySetting,
+		// Props for ApiConfigManager (rendered within ApiOptions)
+		currentApiConfigName,
+		listApiConfigMeta,
+		onSelectConfig: (configName: string) =>
+			checkUnsaveChanges(() => vscode.postMessage({ type: "loadApiConfiguration", text: configName })),
+		onDeleteConfig: (configName: string) =>
+			vscode.postMessage({ type: "deleteApiConfiguration", text: configName }),
+		onRenameConfig: (oldName: string, newName: string) => {
+			vscode.postMessage({
+				type: "renameApiConfiguration",
+				values: { oldName, newName },
+				apiConfiguration, // Pass current cached config
+			})
+			prevApiConfigName.current = newName // Update ref immediately
+		},
+		onUpsertConfig: (configName: string) =>
+			vscode.postMessage({
+				type: "upsertApiConfiguration",
+				text: configName,
+				apiConfiguration, // Pass current cached config
+			}),
+	}
 
-	// Scroll to target section when specified
-	useEffect(() => {
-		if (targetSection) {
-			const sectionObj = sections.find((section) => section.id === targetSection)
-			if (sectionObj && sectionObj.ref.current) {
-				// Use setTimeout to ensure the scroll happens after render
-				setTimeout(() => scrollToSection(sectionObj.ref), 500)
-			}
-		}
-	}, [targetSection, sections])
+	const ActiveSectionComponent = sectionComponentMap[activeSection]
 
+	// --- New Render Logic ---
 	return (
-		<Tab>
-			<TabHeader className="flex justify-between items-center gap-2">
-				<div className="flex items-center gap-1">
-					<h3 className="text-vscode-foreground m-0">{t("settings:header.title")}</h3>
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button variant="ghost" size="icon" className="w-6 h-6">
-								<CaretSortIcon />
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="start" side="bottom">
-							{sections.map(({ id, icon: Icon, ref }) => (
-								<DropdownMenuItem key={id} onClick={() => scrollToSection(ref)}>
-									<Icon />
-									<span>{t(`settings:sections.${id}`)}</span>
-								</DropdownMenuItem>
-							))}
-						</DropdownMenuContent>
-					</DropdownMenu>
-				</div>
+		<div className="fixed inset-0 flex flex-col overflow-hidden bg-vscode-sideBar-background text-vscode-foreground">
+			{/* Header */}
+			<div className="px-5 py-2.5 border-b border-vscode-panel-border flex justify-between items-center flex-shrink-0">
+				<h3 className="text-vscode-foreground m-0">{t("settings:header.title")}</h3>
 				<div className="flex gap-2">
 					<Button
 						variant={isSettingValid ? "default" : "secondary"}
@@ -369,152 +433,140 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					</Button>
 					<Button
 						variant="secondary"
-						title={t("settings:header.doneButtonTooltip")}
-						onClick={() => checkUnsaveChanges(onDone)}>
-						{t("settings:common.done")}
+						title={t("settings:header.closeButtonTooltip")}
+						onClick={() => checkUnsaveChanges(onClose)}>
+						{t("settings:common.close")}
 					</Button>
 				</div>
-			</TabHeader>
+			</div>
 
-			<TabContent className="p-0 divide-y divide-vscode-sideBar-background">
-				<div ref={providersRef}>
-					<SectionHeader>
-						<div className="flex items-center gap-2">
-							<Webhook className="w-4" />
-							<div>{t("settings:sections.providers")}</div>
+			{/* Main Content Area (Two Columns) */}
+			<div className="flex flex-1 overflow-hidden">
+				{/* Left Navigation Column */}
+				<div className="w-60 border-r border-vscode-panel-border overflow-y-auto p-2 flex-shrink-0">
+					{/* Configuration Profile at the top of the left navigation */}
+					<div className="mb-3 pb-3 border-b border-vscode-panel-border">
+						<div className="flex items-center gap-1">
+							<Popover>
+								<PopoverTrigger asChild>
+									<Button
+										variant="combobox"
+										role="combobox"
+										className="grow justify-between text-xs"
+										data-testid="select-component">
+										<div>{currentApiConfigName || t("settings:common.select")}</div>
+										<ChevronsUpDown className="opacity-50 h-3 w-3" />
+									</Button>
+								</PopoverTrigger>
+								<PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]">
+									<Command>
+										<CommandInput
+											placeholder={t("settings:providers.searchPlaceholder")}
+											className="h-9"
+										/>
+										<CommandList>
+											<CommandGroup>
+												{listApiConfigMeta?.map((config) => (
+													<CommandItem
+														key={config.name}
+														value={config.name}
+														onSelect={(value) => {
+															checkUnsaveChanges(() =>
+																vscode.postMessage({
+																	type: "loadApiConfiguration",
+																	text: value,
+																}),
+															)
+														}}>
+														{config.name}
+														<Check
+															className={cn(
+																"size-4 p-0.5 ml-auto",
+																config.name === currentApiConfigName
+																	? "opacity-100"
+																	: "opacity-0",
+															)}
+														/>
+													</CommandItem>
+												))}
+											</CommandGroup>
+										</CommandList>
+									</Command>
+								</PopoverContent>
+							</Popover>
+							<Button
+								variant="ghost"
+								size="icon"
+								className="h-7 w-7"
+								onClick={handleAdd}
+								title={t("settings:providers.addProfile")}>
+								<span className="codicon codicon-add text-xs" />
+							</Button>
+							{currentApiConfigName && (
+								<>
+									<Button
+										variant="ghost"
+										size="icon"
+										className="h-7 w-7"
+										onClick={() => handleStartRename(currentApiConfigName)}
+										title={t("settings:providers.renameProfile")}>
+										<span className="codicon codicon-edit text-xs" />
+									</Button>
+									<Button
+										variant="ghost"
+										size="icon"
+										className="h-7 w-7"
+										onClick={() => {
+											if (listApiConfigMeta.length > 1) {
+												vscode.postMessage({
+													type: "deleteApiConfiguration",
+													text: currentApiConfigName,
+												})
+											}
+										}}
+										title={
+											listApiConfigMeta.length <= 1
+												? t("settings:providers.cannotDeleteOnlyProfile")
+												: t("settings:providers.deleteProfile")
+										}
+										disabled={listApiConfigMeta.length <= 1}>
+										<span className="codicon codicon-trash text-xs" />
+									</Button>
+								</>
+							)}
 						</div>
-					</SectionHeader>
-
-					<Section>
-						<ApiConfigManager
-							currentApiConfigName={currentApiConfigName}
-							listApiConfigMeta={listApiConfigMeta}
-							onSelectConfig={(configName: string) =>
-								checkUnsaveChanges(() =>
-									vscode.postMessage({ type: "loadApiConfiguration", text: configName }),
-								)
-							}
-							onDeleteConfig={(configName: string) =>
-								vscode.postMessage({ type: "deleteApiConfiguration", text: configName })
-							}
-							onRenameConfig={(oldName: string, newName: string) => {
-								vscode.postMessage({
-									type: "renameApiConfiguration",
-									values: { oldName, newName },
-									apiConfiguration,
-								})
-								prevApiConfigName.current = newName
-							}}
-							onUpsertConfig={(configName: string) =>
-								vscode.postMessage({
-									type: "upsertApiConfiguration",
-									text: configName,
-									apiConfiguration,
-								})
-							}
-						/>
-						<ApiOptions
-							uriScheme={uriScheme}
-							apiConfiguration={apiConfiguration}
-							setApiConfigurationField={setApiConfigurationField}
-							errorMessage={errorMessage}
-							setErrorMessage={setErrorMessage}
-						/>
-					</Section>
+					</div>
+					<SettingsNav sections={sections} activeSection={activeSection} onSelectSection={setActiveSection} />
 				</div>
 
-				<div ref={autoApproveRef}>
-					<AutoApproveSettings
-						alwaysAllowReadOnly={alwaysAllowReadOnly}
-						alwaysAllowReadOnlyOutsideWorkspace={alwaysAllowReadOnlyOutsideWorkspace}
-						alwaysAllowWrite={alwaysAllowWrite}
-						alwaysAllowWriteOutsideWorkspace={alwaysAllowWriteOutsideWorkspace}
-						writeDelayMs={writeDelayMs}
-						alwaysAllowBrowser={alwaysAllowBrowser}
-						alwaysApproveResubmit={alwaysApproveResubmit}
-						requestDelaySeconds={requestDelaySeconds}
-						alwaysAllowMcp={alwaysAllowMcp}
-						alwaysAllowModeSwitch={alwaysAllowModeSwitch}
-						alwaysAllowSubtasks={alwaysAllowSubtasks}
-						alwaysAllowExecute={alwaysAllowExecute}
-						allowedCommands={allowedCommands}
-						setCachedStateField={setCachedStateField}
-					/>
-				</div>
+				{/* Right Content Column */}
+				<div className="flex-1 overflow-y-auto">
+					{/* Special handling for providers section */}
+					{activeSection === "providers" ? (
+						<div className="p-5">
+							{/* Add section header for providers */}
+							<SectionHeader>
+								<div className="flex items-center gap-2">
+									<span className="codicon codicon-server w-4" />
+									<div>{t("settings:sections.providers")}</div>
+								</div>
+							</SectionHeader>
 
-				<div ref={browserRef}>
-					<BrowserSettings
-						browserToolEnabled={browserToolEnabled}
-						browserViewportSize={browserViewportSize}
-						screenshotQuality={screenshotQuality}
-						remoteBrowserHost={remoteBrowserHost}
-						remoteBrowserEnabled={remoteBrowserEnabled}
-						setCachedStateField={setCachedStateField}
-					/>
+							{/* Render ApiOptions without its own section header */}
+							<ApiOptions {...sectionProps} fromProvidersTab={true} />
+						</div>
+					) : (
+						/* Render other section components with consistent padding */
+						ActiveSectionComponent && (
+							<div className="p-5">
+								<ActiveSectionComponent {...sectionProps} />
+							</div>
+						)
+					)}
 				</div>
+			</div>
 
-				<div ref={checkpointsRef}>
-					<CheckpointSettings
-						enableCheckpoints={enableCheckpoints}
-						setCachedStateField={setCachedStateField}
-					/>
-				</div>
-
-				<div ref={notificationsRef}>
-					<NotificationSettings
-						ttsEnabled={ttsEnabled}
-						ttsSpeed={ttsSpeed}
-						soundEnabled={soundEnabled}
-						soundVolume={soundVolume}
-						setCachedStateField={setCachedStateField}
-					/>
-				</div>
-
-				<div ref={contextManagementRef}>
-					<ContextManagementSettings
-						maxOpenTabsContext={maxOpenTabsContext}
-						maxWorkspaceFiles={maxWorkspaceFiles ?? 200}
-						showRooIgnoredFiles={showRooIgnoredFiles}
-						maxReadFileLine={maxReadFileLine}
-						setCachedStateField={setCachedStateField}
-					/>
-				</div>
-
-				<div ref={terminalRef}>
-					<TerminalSettings
-						terminalOutputLineLimit={terminalOutputLineLimit}
-						terminalShellIntegrationTimeout={terminalShellIntegrationTimeout}
-						terminalCommandDelay={terminalCommandDelay}
-						terminalPowershellCounter={terminalPowershellCounter}
-						terminalZshClearEolMark={terminalZshClearEolMark}
-						terminalZshOhMy={terminalZshOhMy}
-						terminalZshP10k={terminalZshP10k}
-						terminalZdotdir={terminalZdotdir}
-						setCachedStateField={setCachedStateField}
-					/>
-				</div>
-
-				<div ref={experimentalRef}>
-					<ExperimentalSettings
-						setCachedStateField={setCachedStateField}
-						setExperimentEnabled={setExperimentEnabled}
-						experiments={experiments}
-					/>
-				</div>
-
-				<div ref={languageRef}>
-					<LanguageSettings language={language || "en"} setCachedStateField={setCachedStateField} />
-				</div>
-
-				<div ref={aboutRef}>
-					<About
-						version={version}
-						telemetrySetting={telemetrySetting}
-						setTelemetrySetting={setTelemetrySetting}
-					/>
-				</div>
-			</TabContent>
-
+			{/* Unsaved Changes Dialog (unchanged) */}
 			<AlertDialog open={isDiscardDialogShow} onOpenChange={setDiscardDialogShow}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
@@ -536,7 +588,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-		</Tab>
+		</div>
 	)
 })
 

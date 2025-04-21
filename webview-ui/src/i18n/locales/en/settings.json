@@ -1,7 +1,7 @@
 {
 	"common": {
 		"save": "Save",
-		"done": "Done",
+		"close": "Close",
 		"cancel": "Cancel",
 		"reset": "Reset",
 		"select": "Select"
@@ -10,7 +10,7 @@
 		"title": "Settings",
 		"saveButtonTooltip": "Save changes",
 		"nothingChangedTooltip": "Nothing changed",
-		"doneButtonTooltip": "Discard unsaved changes and close settings panel"
+		"closeButtonTooltip": "Discard unsaved changes and close settings panel"
 	},
 	"unsavedChangesDialog": {
 		"title": "Unsaved Changes",

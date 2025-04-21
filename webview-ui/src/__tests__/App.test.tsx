@@ -25,9 +25,9 @@ jest.mock("@src/components/chat/ChatView", () => ({
 
 jest.mock("@src/components/settings/SettingsView", () => ({
 	__esModule: true,
-	default: function SettingsView({ onDone }: { onDone: () => void }) {
+	default: function SettingsView({ onClose }: { onClose: () => void }) {
 		return (
-			<div data-testid="settings-view" onClick={onDone}>
+			<div data-testid="settings-view" onClick={onClose}>
 				Settings View
 			</div>
 		)
@@ -161,7 +161,7 @@ describe("App", () => {
 		expect(chatView.getAttribute("data-hidden")).toBe("true")
 	})
 
-	it("returns to chat view when clicking done in settings view", async () => {
+	it("returns to chat view when clicking close in settings view", async () => {
 		render(<AppWithProviders />)
 
 		act(() => {
@@ -179,7 +179,7 @@ describe("App", () => {
 		expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument()
 	})
 
-	it.each(["history", "mcp", "prompts"])("returns to chat view when clicking done in %s view", async (view) => {
+	it.each(["history", "mcp", "prompts"])("returns to chat view when clicking close in %s view", async (view) => {
 		render(<AppWithProviders />)
 
 		act(() => {

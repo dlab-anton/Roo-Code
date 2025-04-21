@@ -394,7 +394,7 @@ const PromptsView = ({ onDone }: PromptsViewProps) => {
 		<Tab>
 			<TabHeader className="flex justify-between items-center">
 				<h3 className="text-vscode-foreground m-0">{t("prompts:title")}</h3>
-				<Button onClick={onDone}>{t("prompts:done")}</Button>
+				<Button onClick={onDone}>{t("prompts:close")}</Button>
 			</TabHeader>
 
 			<TabContent>
